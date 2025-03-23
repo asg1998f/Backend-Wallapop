@@ -27,7 +27,7 @@ HEADERS = {
 }
 
 async def fetch_wallapop_products(query: str, db: AsyncIOMotorDatabase, page: str = None, min_price: float = None, max_price: float = None) -> Dict:
-    await db.searches.insert_one({"query": query, "timestamp": datetime.datetime.utcnow()})
+    await db.searches.insert_one({"query": query, "timestamp": datetime.datetime.now(datetime.timezone.utc)})
     params = {
         "source": "suggester",
         "keywords": query,
@@ -72,10 +72,3 @@ async def fetch_wallapop_products(query: str, db: AsyncIOMotorDatabase, page: st
     except ValueError as e:
         print(f"Error al parsear JSON: {e}")
         return {"products": [], "next_page": None}
-
-
-
-
-
-
-
