@@ -3,6 +3,7 @@ from typing import Dict
 from motor.motor_asyncio import AsyncIOMotorDatabase
 import datetime
 import uuid
+import re
 
 API_URL = "https://api.wallapop.com/api/v3/search"
 
@@ -26,14 +27,23 @@ HEADERS = {
     "Sec-Fetch-Site": "same-site",
 }
 
+def create_slug(title: str) -> str:
+    """Convierte el título en un slug limpio (minúsculas, sin espacios ni caracteres especiales)."""
+    slug = title.lower().replace(" ", "-").replace(",", "").replace(".", "")
+    return slug
+
+def extract_numeric_id_from_image_url(image_url: str) -> str:
+    """Extrae el ID numérico de la URL de la imagen (por ejemplo, c10420p1115169485 -> 1115169485)."""
+    match = re.search(r"c10420p(\d+)", image_url)
+    if match:
+        return match.group(1)  
+    return None
+
 async def fetch_wallapop_products(query: str, db: AsyncIOMotorDatabase, page: str = None, min_price: float = None, max_price: float = None) -> Dict:
     await db.searches.insert_one({"query": query, "timestamp": datetime.datetime.now(datetime.timezone.utc)})
     params = {
         "source": "suggester",
         "keywords": query,
-        "category_id": "17000",
-        "longitude": "-3.69196",
-        "latitude": "40.41956",
     }
     if page:
         params["next_page"] = page
@@ -55,16 +65,30 @@ async def fetch_wallapop_products(query: str, db: AsyncIOMotorDatabase, page: st
         if section.get("type") == "organic_search_results":
             products = section.get("payload", {}).get("items", [])
         
-        result = [
-            {
-                "title": p.get("title", "Sin título"),
+        result = []
+        for p in products:
+            print(f"Producto completo: {p}")  
+            title = p.get("title", "Sin título")
+            image_url = p.get("images", [{}])[0].get("urls", {}).get("medium", "")
+            id_fallback = p.get("id", "")
+            
+            numeric_id = extract_numeric_id_from_image_url(image_url) if image_url else None
+            print(f"Producto: {title}, numeric_id: {numeric_id}, id: {id_fallback}, image_url: {image_url}")
+            
+            if numeric_id:
+                link = f"https://es.wallapop.com/item/{create_slug(title)}-{numeric_id}"
+            else:
+                link = f"https://es.wallapop.com/item/{create_slug(title)}-{id_fallback}"
+            
+            product = {
+                "title": title,
                 "price": f"{p.get('price', {}).get('amount', 0)} {p.get('price', {}).get('currency', 'EUR')}",
-                "link": f"https://es.wallapop.com/item/{p.get('id', '')}",
-                "image": p.get("images", [{}])[0].get("urls", {}).get("medium", ""),
+                "link": link,
+                "image": image_url,
                 "location": f"{p.get('location', {}).get('city', 'Desconocido')}, {p.get('location', {}).get('region', 'Desconocido')}"
             }
-            for p in products
-        ]
+            result.append(product)
+        
         return {"products": result, "next_page": next_page}
     except requests.exceptions.RequestException as e:
         print(f"Error al conectar con Wallapop: {e}")
